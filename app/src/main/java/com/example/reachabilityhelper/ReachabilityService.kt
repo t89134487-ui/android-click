@@ -28,7 +28,7 @@ class ReachabilityService : AccessibilityService() {
 
     private var windowManager: WindowManager? = null
     private var touchpadOverlay: FrameLayout? = null
-    private var isTouchpadEnabled = false
+    private var isTouchpadEnabled = true
     private var accessibilityButtonCallback: AccessibilityButtonController.AccessibilityButtonCallback? = null
 
     private val toggleReceiver = object : android.content.BroadcastReceiver() {
@@ -65,6 +65,9 @@ class ReachabilityService : AccessibilityService() {
         } else {
             registerReceiver(toggleReceiver, android.content.IntentFilter("com.example.reachabilityhelper.TOGGLE_TOUCHPAD"))
         }
+
+        addTouchpadOverlay()
+        Log.d(TAG, "Touchpad auto-activated on service connection")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
