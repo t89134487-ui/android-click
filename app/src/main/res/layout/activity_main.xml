@@ -17,21 +17,28 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="To use this app, please enable the following permissions:"
+        android:text="To use this app, please follow these steps:"
         android:layout_marginBottom="16dp"
         android:textAlignment="center"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="1. Enable the Accessibility Service.\n2. In the Service settings, enable the 'Accessibility Button' or 'Reachability Helper shortcut'.\n3. Grant 'Display over other apps' permission."
+        android:layout_marginBottom="16dp"
+        android:textAlignment="viewStart"/>
 
     <Button
         android:id="@+id/btn_accessibility_settings"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Enable Accessibility Service"
+        android:text="Open Accessibility Settings"
         android:layout_marginBottom="8dp"/>
 
     <Button
         android:id="@+id/btn_overlay_settings"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Enable Display Over Other Apps"/>
+        android:text="Grant Overlay Permission"/>
 
 </LinearLayout>
