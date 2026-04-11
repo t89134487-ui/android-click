@@ -78,9 +78,13 @@ class ReachabilityService : AccessibilityService() {
             // Create a red border
             val borderView = View(context).apply {
                 val background = android.graphics.drawable.GradientDrawable().apply {
-                    setStroke(5, Color.RED)
+                    setStroke(10, Color.RED)
                 }
                 setBackground(background)
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
             }
             addView(borderView)
 
@@ -121,6 +125,7 @@ class ReachabilityService : AccessibilityService() {
 
         val path = Path().apply {
             moveTo(targetX, targetY)
+            lineTo(targetX, targetY + 1)
         }
 
         val gestureBuilder = GestureDescription.Builder()
