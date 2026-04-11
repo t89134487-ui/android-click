@@ -39,6 +39,19 @@
         android:id="@+id/btn_overlay_settings"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Grant Overlay Permission"/>
+        android:text="Grant Overlay Permission"
+        android:layout_marginBottom="32dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Debug Options:"
+        android:layout_marginBottom="8dp"/>
+
+    <Button
+        android:id="@+id/btn_toggle_service"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Manual Toggle (for testing)"/>
 
 </LinearLayout>

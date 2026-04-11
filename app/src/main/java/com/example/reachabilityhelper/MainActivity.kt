@@ -22,5 +22,10 @@ class MainActivity : AppCompatActivity() {
             val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
             startActivity(intent)
         }
+
+        findViewById<Button>(R.id.btn_toggle_service).setOnClickListener {
+            // Send a broadcast to toggle the service
+            sendBroadcast(Intent("com.example.reachabilityhelper.TOGGLE_TOUCHPAD"))
+        }
     }
 }
