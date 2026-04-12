@@ -1,6 +1,9 @@
 package com.example.reachabilityhelper
 
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
@@ -12,6 +15,14 @@ import androidx.appcompat.app.AppCompatActivity
 class MainActivity : AppCompatActivity() {
 
     private lateinit var tvServiceStatus: TextView
+    private lateinit var tvLogs: TextView
+
+    private val logReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val message = intent?.getStringExtra("message") ?: return
+            tvLogs.append("\n$message")
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -28,10 +39,17 @@ class MainActivity : AppCompatActivity() {
         }
 
         tvServiceStatus = findViewById(R.id.tv_service_status)
+        tvLogs = findViewById(R.id.tv_logs)
 
         findViewById<Button>(R.id.btn_toggle_service).setOnClickListener {
-            // Send a broadcast to toggle the service
             sendBroadcast(Intent("com.example.reachabilityhelper.TOGGLE_TOUCHPAD"))
+        }
+
+        val filter = IntentFilter("com.example.reachabilityhelper.LOG")
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(logReceiver, filter, RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(logReceiver, filter)
         }
     }
 
@@ -40,13 +58,18 @@ class MainActivity : AppCompatActivity() {
         updateServiceStatus()
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        unregisterReceiver(logReceiver)
+    }
+
     private fun updateServiceStatus() {
         val isRunning = ReachabilityService.isServiceRunning
         if (isRunning) {
             tvServiceStatus.text = "Service: ACTIVE"
             tvServiceStatus.setTextColor(Color.GREEN)
         } else {
-            tvServiceStatus.text = "Service: DISABLED (Enable in Settings)"
+            tvServiceStatus.text = "Service: DISABLED"
             tvServiceStatus.setTextColor(Color.RED)
         }
     }

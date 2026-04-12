@@ -61,6 +61,29 @@
         android:id="@+id/btn_toggle_service"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Manual Toggle (for testing)"/>
+        android:text="Manual Toggle (for testing)"
+        android:layout_marginBottom="16dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Logs:"
+        android:textStyle="bold"
+        android:layout_marginBottom="4dp"/>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="#EEEEEE"
+        android:padding="8dp">
+        <TextView
+            android:id="@+id/tv_logs"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:textSize="12sp"
+            android:text="Waiting for logs..."/>
+    </ScrollView>
 
 </LinearLayout>
