@@ -28,8 +28,16 @@ class ReachabilityService : AccessibilityService() {
 
     private var windowManager: WindowManager? = null
     private var touchpadOverlay: FrameLayout? = null
-    private var isTouchpadEnabled = true
+    private var isTouchpadEnabled = false
     private var accessibilityButtonCallback: AccessibilityButtonController.AccessibilityButtonCallback? = null
+
+    private val handler = Handler(Looper.getMainLooper())
+    private val autoOffRunnable = Runnable {
+        Log.d(TAG, "Auto-off timer triggered")
+        if (isTouchpadEnabled) {
+            toggleTouchpad()
+        }
+    }
 
     private val toggleReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
@@ -65,9 +73,6 @@ class ReachabilityService : AccessibilityService() {
         } else {
             registerReceiver(toggleReceiver, android.content.IntentFilter("com.example.reachabilityhelper.TOGGLE_TOUCHPAD"))
         }
-
-        addTouchpadOverlay()
-        Log.d(TAG, "Touchpad auto-activated on service connection")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
@@ -78,13 +83,20 @@ class ReachabilityService : AccessibilityService() {
         if (isTouchpadEnabled) {
             Log.d(TAG, "Disabling touchpad")
             removeTouchpadOverlay()
+            handler.removeCallbacks(autoOffRunnable)
             Toast.makeText(this, "Touchpad Disabled", Toast.LENGTH_SHORT).show()
         } else {
             Log.d(TAG, "Enabling touchpad")
             addTouchpadOverlay()
+            resetAutoOffTimer(3000) // Longer initial timeout (3s) to allow first tap
             Toast.makeText(this, "Touchpad Enabled", Toast.LENGTH_SHORT).show()
         }
         isTouchpadEnabled = !isTouchpadEnabled
+    }
+
+    private fun resetAutoOffTimer(delayMillis: Long = 1000) {
+        handler.removeCallbacks(autoOffRunnable)
+        handler.postDelayed(autoOffRunnable, delayMillis)
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -96,11 +108,10 @@ class ReachabilityService : AccessibilityService() {
         val overlayHeight = screenHeight / 2
 
         touchpadOverlay = FrameLayout(this).apply {
-            // Create a red border and semi-transparent background for visibility
             val borderView = View(context).apply {
                 val background = GradientDrawable().apply {
                     setStroke(10, Color.RED)
-                    setColor(Color.argb(30, 255, 0, 0)) // 30/255 alpha for visibility
+                    setColor(Color.argb(30, 255, 0, 0))
                 }
                 setBackground(background)
                 layoutParams = FrameLayout.LayoutParams(
@@ -112,6 +123,7 @@ class ReachabilityService : AccessibilityService() {
 
             setOnTouchListener { _, event ->
                 if (event.action == MotionEvent.ACTION_DOWN) {
+                    resetAutoOffTimer()
                     dispatchClickToTop(event.x, event.y)
                 }
                 true
@@ -152,7 +164,6 @@ class ReachabilityService : AccessibilityService() {
     }
 
     private fun dispatchClickToTop(x: Float, y: Float) {
-        // targetY = y maps top of touchpad to top of screen
         val targetX = x
         val targetY = y
 
@@ -179,9 +190,8 @@ class ReachabilityService : AccessibilityService() {
     }
 
     private fun showVisualIndicator(x: Float, y: Float) {
+        val size = 60
         val indicator = View(this).apply {
-            val size = 60
-            layoutParams = FrameLayout.LayoutParams(size, size)
             val shape = GradientDrawable().apply {
                 setShape(GradientDrawable.OVAL)
                 setColor(Color.argb(180, 255, 0, 0))
@@ -190,17 +200,18 @@ class ReachabilityService : AccessibilityService() {
         }
 
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            size,
+            size,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            this.x = (x - 30).toInt()
-            this.y = (y - 30).toInt()
+            this.x = (x - size / 2).toInt()
+            this.y = (y - size / 2).toInt()
         }
 
         try {
@@ -222,6 +233,7 @@ class ReachabilityService : AccessibilityService() {
         Log.d(TAG, "Service destroyed")
         isServiceRunning = false
         removeTouchpadOverlay()
+        handler.removeCallbacks(autoOffRunnable)
         try {
             unregisterReceiver(toggleReceiver)
         } catch (e: Exception) {}
