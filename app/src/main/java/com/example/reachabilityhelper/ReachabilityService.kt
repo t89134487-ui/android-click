@@ -35,7 +35,7 @@ class ReachabilityService : AccessibilityService() {
     private val autoOffRunnable = Runnable {
         Log.d(TAG, "Auto-off timer triggered")
         if (isTouchpadEnabled) {
-            toggleTouchpad()
+            disableTouchpad()
         }
     }
 
@@ -43,7 +43,7 @@ class ReachabilityService : AccessibilityService() {
         override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
             if (intent?.action == "com.example.reachabilityhelper.TOGGLE_TOUCHPAD") {
                 Log.d(TAG, "Toggle broadcast received")
-                toggleTouchpad()
+                if (isTouchpadEnabled) disableTouchpad() else enableTouchpad()
             }
         }
     }
@@ -53,14 +53,15 @@ class ReachabilityService : AccessibilityService() {
         Log.d(TAG, "Service connected")
         isServiceRunning = true
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        Toast.makeText(this, "Reachability Helper Connected", Toast.LENGTH_SHORT).show()
+
+        Toast.makeText(this, "Reachability Helper Activated", Toast.LENGTH_SHORT).show()
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             val controller = accessibilityButtonController
             accessibilityButtonCallback = object : AccessibilityButtonController.AccessibilityButtonCallback() {
                 override fun onClicked(controller: AccessibilityButtonController?) {
                     Log.d(TAG, "Accessibility button clicked")
-                    toggleTouchpad()
+                    if (isTouchpadEnabled) disableTouchpad() else enableTouchpad()
                 }
             }
             accessibilityButtonCallback?.let {
@@ -73,25 +74,31 @@ class ReachabilityService : AccessibilityService() {
         } else {
             registerReceiver(toggleReceiver, android.content.IntentFilter("com.example.reachabilityhelper.TOGGLE_TOUCHPAD"))
         }
+
+        // Auto-enable when service starts (user just toggled it in settings)
+        enableTouchpad()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
 
     override fun onInterrupt() {}
 
-    private fun toggleTouchpad() {
-        if (isTouchpadEnabled) {
-            Log.d(TAG, "Disabling touchpad")
-            removeTouchpadOverlay()
-            handler.removeCallbacks(autoOffRunnable)
-            Toast.makeText(this, "Touchpad Disabled", Toast.LENGTH_SHORT).show()
-        } else {
-            Log.d(TAG, "Enabling touchpad")
-            addTouchpadOverlay()
-            resetAutoOffTimer(3000) // Longer initial timeout (3s) to allow first tap
-            Toast.makeText(this, "Touchpad Enabled", Toast.LENGTH_SHORT).show()
-        }
-        isTouchpadEnabled = !isTouchpadEnabled
+    private fun enableTouchpad() {
+        if (isTouchpadEnabled) return
+        Log.d(TAG, "Enabling touchpad")
+        addTouchpadOverlay()
+        resetAutoOffTimer(3000) // 3 seconds initial buffer
+        isTouchpadEnabled = true
+        Toast.makeText(this, "Touchpad On", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun disableTouchpad() {
+        if (!isTouchpadEnabled) return
+        Log.d(TAG, "Disabling touchpad")
+        removeTouchpadOverlay()
+        handler.removeCallbacks(autoOffRunnable)
+        isTouchpadEnabled = false
+        Toast.makeText(this, "Touchpad Off", Toast.LENGTH_SHORT).show()
     }
 
     private fun resetAutoOffTimer(delayMillis: Long = 1000) {
@@ -110,8 +117,8 @@ class ReachabilityService : AccessibilityService() {
         touchpadOverlay = FrameLayout(this).apply {
             val borderView = View(context).apply {
                 val background = GradientDrawable().apply {
-                    setStroke(10, Color.RED)
-                    setColor(Color.argb(30, 255, 0, 0))
+                    setStroke(15, Color.RED) // Thicker border
+                    setColor(Color.argb(50, 255, 0, 0)) // More visible background
                 }
                 setBackground(background)
                 layoutParams = FrameLayout.LayoutParams(
@@ -123,7 +130,7 @@ class ReachabilityService : AccessibilityService() {
 
             setOnTouchListener { _, event ->
                 if (event.action == MotionEvent.ACTION_DOWN) {
-                    resetAutoOffTimer()
+                    resetAutoOffTimer(1000)
                     dispatchClickToTop(event.x, event.y)
                 }
                 true
@@ -145,9 +152,9 @@ class ReachabilityService : AccessibilityService() {
 
         try {
             windowManager?.addView(touchpadOverlay, params)
-            Log.d(TAG, "Touchpad overlay added to WindowManager")
+            Log.d(TAG, "Touchpad overlay added")
         } catch (e: Exception) {
-            Log.e(TAG, "Error adding touchpad overlay", e)
+            Log.e(TAG, "Error adding overlay", e)
         }
     }
 
@@ -155,9 +162,9 @@ class ReachabilityService : AccessibilityService() {
         touchpadOverlay?.let {
             try {
                 windowManager?.removeView(it)
-                Log.d(TAG, "Touchpad overlay removed from WindowManager")
+                Log.d(TAG, "Touchpad overlay removed")
             } catch (e: Exception) {
-                Log.e(TAG, "Error removing touchpad overlay", e)
+                Log.e(TAG, "Error removing overlay", e)
             }
             touchpadOverlay = null
         }
@@ -167,7 +174,7 @@ class ReachabilityService : AccessibilityService() {
         val targetX = x
         val targetY = y
 
-        Log.d(TAG, "Dispatching click to ($targetX, $targetY)")
+        Log.d(TAG, "Clicking at ($targetX, $targetY)")
         showVisualIndicator(targetX, targetY)
 
         val path = Path().apply {
@@ -179,22 +186,20 @@ class ReachabilityService : AccessibilityService() {
         gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 0, 50))
         dispatchGesture(gestureBuilder.build(), object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
-                super.onCompleted(gestureDescription)
-                Log.d(TAG, "Gesture completed successfully")
+                Log.d(TAG, "Gesture success")
             }
             override fun onCancelled(gestureDescription: GestureDescription?) {
-                super.onCancelled(gestureDescription)
                 Log.e(TAG, "Gesture cancelled")
             }
         }, null)
     }
 
     private fun showVisualIndicator(x: Float, y: Float) {
-        val size = 60
+        val size = 80
         val indicator = View(this).apply {
             val shape = GradientDrawable().apply {
                 setShape(GradientDrawable.OVAL)
-                setColor(Color.argb(180, 255, 0, 0))
+                setColor(Color.argb(200, 255, 0, 0))
             }
             background = shape
         }
@@ -220,20 +225,17 @@ class ReachabilityService : AccessibilityService() {
             Handler(Looper.getMainLooper()).postDelayed({
                 try {
                     windowManager?.removeView(indicator)
-                } catch (e: Exception) {
-                }
+                } catch (e: Exception) {}
             }, 300)
         } catch (e: Exception) {
-            Log.e(TAG, "Error adding visual indicator", e)
+            Log.e(TAG, "Error adding indicator", e)
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        Log.d(TAG, "Service destroyed")
         isServiceRunning = false
-        removeTouchpadOverlay()
-        handler.removeCallbacks(autoOffRunnable)
+        disableTouchpad()
         try {
             unregisterReceiver(toggleReceiver)
         } catch (e: Exception) {}
