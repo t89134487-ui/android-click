@@ -10,6 +10,7 @@ import android.graphics.Color
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Point
+import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
@@ -22,9 +23,9 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.FrameLayout
 import android.widget.Toast
-import kotlin.math.roundToInt
 
 class ReachabilityService : AccessibilityService() {
 
@@ -153,7 +154,7 @@ class ReachabilityService : AccessibilityService() {
                     }
                     MotionEvent.ACTION_UP -> {
                         resetAutoOffTimer(1000)
-                        hideTouchpadAndClick(event.rawX, event.rawY)
+                        handleMirrorTouch(event.rawX, event.rawY)
                     }
                 }
                 true
@@ -189,7 +190,7 @@ class ReachabilityService : AccessibilityService() {
         }
     }
 
-    private fun hideTouchpadAndClick(rawX: Float, rawY: Float) {
+    private fun handleMirrorTouch(rawX: Float, rawY: Float) {
         val display = windowManager?.defaultDisplay
         val screenSize = Point()
         display?.getRealSize(screenSize)
@@ -202,40 +203,90 @@ class ReachabilityService : AccessibilityService() {
         val clampedX = targetX.coerceIn(0f, screenSize.x.toFloat())
         val clampedY = targetY.coerceIn(0f, (screenHeight / 2f) - 1f)
 
-        sendLog("Hide-to-Click at (${clampedX.toInt()}, ${clampedY.toInt()})")
-
-        // 1. Hide the overlay immediately
-        removeTouchpadOverlay()
+        sendLog("Target: (${clampedX.toInt()}, ${clampedY.toInt()})")
 
         showVisualIndicator(clampedX, clampedY)
         vibrate()
 
-        val path = Path().apply {
-            moveTo(clampedX, clampedY)
+        // Hide overlay to ensure it doesn't block node discovery or gesture
+        removeTouchpadOverlay()
+
+        // 1. Try Smart Click (ACTION_CLICK on AccessibilityNodeInfo)
+        val clicked = trySmartClick(clampedX.toInt(), clampedY.toInt())
+
+        // 2. Fallback to dispatchGesture with a delay
+        if (!clicked) {
+            handler.postDelayed({
+                dispatchSyntheticClick(clampedX, clampedY)
+            }, 150)
+        } else {
+            // Re-add overlay if smart clicked
+            if (isTouchpadEnabled) addTouchpadOverlay()
+        }
+    }
+
+    private fun trySmartClick(x: Int, y: Int): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val clickableNode = findClickableNodeAt(root, x, y)
+        if (clickableNode != null) {
+            val text = clickableNode.text ?: clickableNode.contentDescription ?: clickableNode.className
+            sendLog("Smart Click on: $text")
+            val result = clickableNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            // Note: Don't recycle clickableNode if it's the result of findClickableNodeAt as we recycled others there
+            // Actually, findClickableNodeAt returns a NEW reference via obtain() or similar
+            clickableNode.recycle()
+            root.recycle()
+            return result
+        }
+        root.recycle()
+        return false
+    }
+
+    private fun findClickableNodeAt(node: AccessibilityNodeInfo, x: Int, y: Int): AccessibilityNodeInfo? {
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
+        if (!bounds.contains(x, y)) return null
+
+        // Search children first for the deepest node
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val result = findClickableNodeAt(child, x, y)
+            if (result != null) {
+                // We found it deeper down
+                return result
+            }
+            child.recycle()
         }
 
-        // 2. Wait 100ms for overlay removal to be processed by system
-        handler.postDelayed({
-            val gestureBuilder = GestureDescription.Builder()
-            gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 0, 10))
+        // If no clickable children, check if this node is clickable
+        if (node.isClickable) {
+            return AccessibilityNodeInfo.obtain(node)
+        }
 
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                gestureBuilder.setDisplayId(Display.DEFAULT_DISPLAY)
+        return null
+    }
+
+    private fun dispatchSyntheticClick(x: Float, y: Float) {
+        val path = Path().apply {
+            moveTo(x, y)
+        }
+        val gestureBuilder = GestureDescription.Builder()
+        gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 0, 50))
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            gestureBuilder.setDisplayId(Display.DEFAULT_DISPLAY)
+        }
+
+        dispatchGesture(gestureBuilder.build(), object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                sendLog("Gesture success")
+                if (isTouchpadEnabled) addTouchpadOverlay()
             }
-
-            // 3. Dispatch the gesture
-            dispatchGesture(gestureBuilder.build(), object : GestureResultCallback() {
-                override fun onCompleted(gestureDescription: GestureDescription?) {
-                    sendLog("Click SUCCESS")
-                    // 4. Re-add overlay after gesture completes
-                    if (isTouchpadEnabled) addTouchpadOverlay()
-                }
-                override fun onCancelled(gestureDescription: GestureDescription?) {
-                    sendLog("Click CANCELLED")
-                    if (isTouchpadEnabled) addTouchpadOverlay()
-                }
-            }, null)
-        }, 100)
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                sendLog("Gesture cancelled")
+                if (isTouchpadEnabled) addTouchpadOverlay()
+            }
+        }, null)
     }
 
     private fun testInjectedTap() {
@@ -251,10 +302,7 @@ class ReachabilityService : AccessibilityService() {
             sendLog("TESTING TAP NOW")
             showVisualIndicator(targetX, targetY)
             vibrate()
-            val path = Path().apply { moveTo(targetX, targetY) }
-            val gestureBuilder = GestureDescription.Builder()
-            gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 0, 10))
-            dispatchGesture(gestureBuilder.build(), null, null)
+            dispatchSyntheticClick(targetX, targetY)
         }, 3000)
     }
 
