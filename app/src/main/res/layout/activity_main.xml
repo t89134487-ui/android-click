@@ -62,6 +62,13 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Manual Toggle (for testing)"
+        android:layout_marginBottom="8dp"/>
+
+    <Button
+        android:id="@+id/btn_test_tap"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Test Injected Tap (3s delay)"
         android:layout_marginBottom="16dp"/>
 
     <TextView
@@ -83,6 +90,7 @@
             android:layout_height="wrap_content"
             android:fontFamily="monospace"
             android:textSize="12sp"
+            android:textIsSelectable="true"
             android:text="Waiting for logs..."/>
     </ScrollView>
 

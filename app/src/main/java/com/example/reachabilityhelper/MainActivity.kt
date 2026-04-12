@@ -45,6 +45,10 @@ class MainActivity : AppCompatActivity() {
             sendBroadcast(Intent("com.example.reachabilityhelper.TOGGLE_TOUCHPAD"))
         }
 
+        findViewById<Button>(R.id.btn_test_tap).setOnClickListener {
+            sendBroadcast(Intent("com.example.reachabilityhelper.TEST_TAP"))
+        }
+
         val filter = IntentFilter("com.example.reachabilityhelper.LOG")
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(logReceiver, filter, RECEIVER_EXPORTED)
