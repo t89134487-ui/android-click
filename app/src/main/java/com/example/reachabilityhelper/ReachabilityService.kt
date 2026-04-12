@@ -8,12 +8,12 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.Path
 import android.graphics.PixelFormat
+import android.graphics.Point
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
-import android.os.VibratorManager
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
@@ -58,7 +58,7 @@ class ReachabilityService : AccessibilityService() {
         isServiceRunning = true
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
-        Toast.makeText(this, "Reachability Helper Activated", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Reachability Helper Connected", Toast.LENGTH_SHORT).show()
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             val controller = accessibilityButtonController
@@ -90,7 +90,7 @@ class ReachabilityService : AccessibilityService() {
         if (isTouchpadEnabled) return
         Log.d(TAG, "Enabling touchpad")
         addTouchpadOverlay()
-        resetAutoOffTimer(3000)
+        resetAutoOffTimer(3000) // Initial 3s buffer
         isTouchpadEnabled = true
     }
 
@@ -109,9 +109,11 @@ class ReachabilityService : AccessibilityService() {
 
     @SuppressLint("ClickableViewAccessibility")
     private fun addTouchpadOverlay() {
-        val displayMetrics = resources.displayMetrics
-        val screenHeight = displayMetrics.heightPixels
-        val screenWidth = displayMetrics.widthPixels
+        val display = windowManager?.defaultDisplay
+        val size = Point()
+        display?.getRealSize(size)
+        val screenHeight = size.y
+        val screenWidth = size.x
 
         val overlayHeight = screenHeight / 2
 
@@ -175,17 +177,18 @@ class ReachabilityService : AccessibilityService() {
     }
 
     private fun dispatchClickToTop(rawX: Float, rawY: Float) {
-        val displayMetrics = resources.displayMetrics
-        val screenHeight = displayMetrics.heightPixels
+        val display = windowManager?.defaultDisplay
+        val screenSize = Point()
+        display?.getRealSize(screenSize)
+        val screenHeight = screenSize.y
 
-        // rawY is 0 at the top of the screen.
-        // touchpad is at bottom half, so rawY is between screenHeight/2 and screenHeight.
-        // We want targetY to be between 0 and screenHeight/2.
-        // So targetY = rawY - (screenHeight / 2)
+        // Mapping: rawY is between screenHeight/2 and screenHeight.
+        // targetY should be between 0 and screenHeight/2.
         val targetX = rawX
         val targetY = rawY - (screenHeight / 2f)
 
-        Log.d(TAG, "Raw input: ($rawX, $rawY), Dispatching click to ($targetX, $targetY)")
+        Log.d(TAG, "Raw: ($rawX, $rawY), Screen: $screenHeight, Target: ($targetX, $targetY)")
+
         showVisualIndicator(targetX, targetY)
         vibrate()
 
@@ -194,28 +197,24 @@ class ReachabilityService : AccessibilityService() {
             lineTo(targetX, targetY + 1)
         }
 
-        val gestureBuilder = GestureDescription.Builder()
-        gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 0, 100))
-        val result = dispatchGesture(gestureBuilder.build(), object : GestureResultCallback() {
-            override fun onCompleted(gestureDescription: GestureDescription?) {
-                Log.d(TAG, "Gesture success")
-            }
-            override fun onCancelled(gestureDescription: GestureDescription?) {
-                Log.e(TAG, "Gesture cancelled")
-            }
-        }, null)
-        Log.d(TAG, "dispatchGesture result: $result")
+        // Delay the gesture slightly to ensure the physical touch is fully released
+        handler.postDelayed({
+            val gestureBuilder = GestureDescription.Builder()
+            gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 0, 50))
+            val result = dispatchGesture(gestureBuilder.build(), object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    Log.d(TAG, "Gesture completed at ($targetX, $targetY)")
+                }
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    Log.e(TAG, "Gesture cancelled")
+                }
+            }, null)
+            Log.d(TAG, "dispatchGesture return: $result")
+        }, 50)
     }
 
     private fun vibrate() {
-        val vibrator = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-            vibratorManager.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        }
-
+        val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             vibrator.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
         } else {
@@ -252,7 +251,7 @@ class ReachabilityService : AccessibilityService() {
         try {
             windowManager?.addView(indicator, params)
 
-            Handler(Looper.getMainLooper()).postDelayed({
+            handler.postDelayed({
                 try {
                     windowManager?.removeView(indicator)
                 } catch (e: Exception) {}
