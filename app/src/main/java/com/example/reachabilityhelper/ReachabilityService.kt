@@ -4,12 +4,16 @@ import android.accessibilityservice.AccessibilityButtonController
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.annotation.SuppressLint
+import android.content.Context
 import android.graphics.Color
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
@@ -75,7 +79,6 @@ class ReachabilityService : AccessibilityService() {
             registerReceiver(toggleReceiver, android.content.IntentFilter("com.example.reachabilityhelper.TOGGLE_TOUCHPAD"))
         }
 
-        // Auto-enable when service starts (user just toggled it in settings)
         enableTouchpad()
     }
 
@@ -87,9 +90,8 @@ class ReachabilityService : AccessibilityService() {
         if (isTouchpadEnabled) return
         Log.d(TAG, "Enabling touchpad")
         addTouchpadOverlay()
-        resetAutoOffTimer(3000) // 3 seconds initial buffer
+        resetAutoOffTimer(3000)
         isTouchpadEnabled = true
-        Toast.makeText(this, "Touchpad On", Toast.LENGTH_SHORT).show()
     }
 
     private fun disableTouchpad() {
@@ -98,7 +100,6 @@ class ReachabilityService : AccessibilityService() {
         removeTouchpadOverlay()
         handler.removeCallbacks(autoOffRunnable)
         isTouchpadEnabled = false
-        Toast.makeText(this, "Touchpad Off", Toast.LENGTH_SHORT).show()
     }
 
     private fun resetAutoOffTimer(delayMillis: Long = 1000) {
@@ -117,8 +118,8 @@ class ReachabilityService : AccessibilityService() {
         touchpadOverlay = FrameLayout(this).apply {
             val borderView = View(context).apply {
                 val background = GradientDrawable().apply {
-                    setStroke(15, Color.RED) // Thicker border
-                    setColor(Color.argb(50, 255, 0, 0)) // More visible background
+                    setStroke(15, Color.RED)
+                    setColor(Color.argb(30, 255, 0, 0))
                 }
                 setBackground(background)
                 layoutParams = FrameLayout.LayoutParams(
@@ -129,9 +130,14 @@ class ReachabilityService : AccessibilityService() {
             addView(borderView)
 
             setOnTouchListener { _, event ->
-                if (event.action == MotionEvent.ACTION_DOWN) {
-                    resetAutoOffTimer(1000)
-                    dispatchClickToTop(event.x, event.y)
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        resetAutoOffTimer(1000)
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        resetAutoOffTimer(1000)
+                        dispatchClickToTop(event.rawX, event.rawY)
+                    }
                 }
                 true
             }
@@ -152,7 +158,6 @@ class ReachabilityService : AccessibilityService() {
 
         try {
             windowManager?.addView(touchpadOverlay, params)
-            Log.d(TAG, "Touchpad overlay added")
         } catch (e: Exception) {
             Log.e(TAG, "Error adding overlay", e)
         }
@@ -162,7 +167,6 @@ class ReachabilityService : AccessibilityService() {
         touchpadOverlay?.let {
             try {
                 windowManager?.removeView(it)
-                Log.d(TAG, "Touchpad overlay removed")
             } catch (e: Exception) {
                 Log.e(TAG, "Error removing overlay", e)
             }
@@ -170,12 +174,20 @@ class ReachabilityService : AccessibilityService() {
         }
     }
 
-    private fun dispatchClickToTop(x: Float, y: Float) {
-        val targetX = x
-        val targetY = y
+    private fun dispatchClickToTop(rawX: Float, rawY: Float) {
+        val displayMetrics = resources.displayMetrics
+        val screenHeight = displayMetrics.heightPixels
 
-        Log.d(TAG, "Clicking at ($targetX, $targetY)")
+        // rawY is 0 at the top of the screen.
+        // touchpad is at bottom half, so rawY is between screenHeight/2 and screenHeight.
+        // We want targetY to be between 0 and screenHeight/2.
+        // So targetY = rawY - (screenHeight / 2)
+        val targetX = rawX
+        val targetY = rawY - (screenHeight / 2f)
+
+        Log.d(TAG, "Raw input: ($rawX, $rawY), Dispatching click to ($targetX, $targetY)")
         showVisualIndicator(targetX, targetY)
+        vibrate()
 
         val path = Path().apply {
             moveTo(targetX, targetY)
@@ -183,8 +195,8 @@ class ReachabilityService : AccessibilityService() {
         }
 
         val gestureBuilder = GestureDescription.Builder()
-        gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 0, 50))
-        dispatchGesture(gestureBuilder.build(), object : GestureResultCallback() {
+        gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 0, 100))
+        val result = dispatchGesture(gestureBuilder.build(), object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
                 Log.d(TAG, "Gesture success")
             }
@@ -192,6 +204,24 @@ class ReachabilityService : AccessibilityService() {
                 Log.e(TAG, "Gesture cancelled")
             }
         }, null)
+        Log.d(TAG, "dispatchGesture result: $result")
+    }
+
+    private fun vibrate() {
+        val vibrator = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            vibratorManager.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(50)
+        }
     }
 
     private fun showVisualIndicator(x: Float, y: Float) {
