@@ -24,6 +24,7 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.FrameLayout
 import android.widget.Toast
+import kotlin.math.roundToInt
 
 class ReachabilityService : AccessibilityService() {
 
@@ -45,10 +46,13 @@ class ReachabilityService : AccessibilityService() {
 
     private val toggleReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == "com.example.reachabilityhelper.TOGGLE_TOUCHPAD") {
-                if (isTouchpadEnabled) disableTouchpad() else enableTouchpad()
-            } else if (intent?.action == "com.example.reachabilityhelper.TEST_TAP") {
-                testInjectedTap()
+            when (intent?.action) {
+                "com.example.reachabilityhelper.TOGGLE_TOUCHPAD" -> {
+                    if (isTouchpadEnabled) disableTouchpad() else enableTouchpad()
+                }
+                "com.example.reachabilityhelper.TEST_TAP" -> {
+                    testInjectedTap()
+                }
             }
         }
     }
@@ -118,6 +122,8 @@ class ReachabilityService : AccessibilityService() {
 
     @SuppressLint("ClickableViewAccessibility")
     private fun addTouchpadOverlay() {
+        if (touchpadOverlay != null) return
+
         val display = windowManager?.defaultDisplay
         val size = Point()
         display?.getRealSize(size)
@@ -147,7 +153,7 @@ class ReachabilityService : AccessibilityService() {
                     }
                     MotionEvent.ACTION_UP -> {
                         resetAutoOffTimer(1000)
-                        dispatchClickToTop(event.rawX, event.rawY)
+                        hideTouchpadAndClick(event.rawX, event.rawY)
                     }
                 }
                 true
@@ -183,7 +189,7 @@ class ReachabilityService : AccessibilityService() {
         }
     }
 
-    private fun dispatchClickToTop(rawX: Float, rawY: Float) {
+    private fun hideTouchpadAndClick(rawX: Float, rawY: Float) {
         val display = windowManager?.defaultDisplay
         val screenSize = Point()
         display?.getRealSize(screenSize)
@@ -192,41 +198,44 @@ class ReachabilityService : AccessibilityService() {
         val targetX = rawX
         val targetY = rawY - (screenHeight / 2f)
 
-        // Clamping to ensure it's in the top half
+        // Clamping
         val clampedX = targetX.coerceIn(0f, screenSize.x.toFloat())
         val clampedY = targetY.coerceIn(0f, (screenHeight / 2f) - 1f)
 
-        sendLog("Touch (${rawX.toInt()}, ${rawY.toInt()}) -> Target (${clampedX.toInt()}, ${clampedY.toInt()})")
+        sendLog("Hide-to-Click at (${clampedX.toInt()}, ${clampedY.toInt()})")
+
+        // 1. Hide the overlay immediately
+        removeTouchpadOverlay()
 
         showVisualIndicator(clampedX, clampedY)
         vibrate()
 
         val path = Path().apply {
             moveTo(clampedX, clampedY)
-            lineTo(clampedX, clampedY + 1)
         }
 
-        // Wait 500ms for user release, then perform tap
+        // 2. Wait 100ms for overlay removal to be processed by system
         handler.postDelayed({
             val gestureBuilder = GestureDescription.Builder()
-            val strokeDescription = GestureDescription.StrokeDescription(path, 0, 100)
-            gestureBuilder.addStroke(strokeDescription)
+            gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 0, 10))
 
-            // For Android 11+, explicitly set the display ID
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                 gestureBuilder.setDisplayId(Display.DEFAULT_DISPLAY)
             }
 
-            val result = dispatchGesture(gestureBuilder.build(), object : GestureResultCallback() {
+            // 3. Dispatch the gesture
+            dispatchGesture(gestureBuilder.build(), object : GestureResultCallback() {
                 override fun onCompleted(gestureDescription: GestureDescription?) {
-                    sendLog("Gesture Success at (${clampedX.toInt()}, ${clampedY.toInt()})")
+                    sendLog("Click SUCCESS")
+                    // 4. Re-add overlay after gesture completes
+                    if (isTouchpadEnabled) addTouchpadOverlay()
                 }
                 override fun onCancelled(gestureDescription: GestureDescription?) {
-                    sendLog("Gesture CANCELLED by system")
+                    sendLog("Click CANCELLED")
+                    if (isTouchpadEnabled) addTouchpadOverlay()
                 }
             }, null)
-            if (!result) sendLog("dispatchGesture returned FALSE")
-        }, 500)
+        }, 100)
     }
 
     private fun testInjectedTap() {
@@ -235,23 +244,16 @@ class ReachabilityService : AccessibilityService() {
         display?.getRealSize(screenSize)
 
         val targetX = screenSize.x / 2f
-        val targetY = screenSize.y / 4f // Center of the top half
+        val targetY = screenSize.y / 4f
 
-        sendLog("Starting 3s test countdown to click top center...")
-
+        sendLog("Test Tap (3s)...")
         handler.postDelayed({
-            sendLog("TEST TAP NOW")
+            sendLog("TESTING TAP NOW")
             showVisualIndicator(targetX, targetY)
             vibrate()
-            val path = Path().apply {
-                moveTo(targetX, targetY)
-                lineTo(targetX, targetY + 1)
-            }
+            val path = Path().apply { moveTo(targetX, targetY) }
             val gestureBuilder = GestureDescription.Builder()
-            gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 0, 100))
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                gestureBuilder.setDisplayId(Display.DEFAULT_DISPLAY)
-            }
+            gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 0, 10))
             dispatchGesture(gestureBuilder.build(), null, null)
         }, 3000)
     }
