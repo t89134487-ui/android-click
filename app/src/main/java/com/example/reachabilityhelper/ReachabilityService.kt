@@ -7,11 +7,12 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Point
-import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
@@ -24,10 +25,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
-import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.FrameLayout
-import android.widget.GridLayout
-import android.widget.Toast
 
 class ReachabilityService : AccessibilityService() {
 
@@ -38,23 +36,20 @@ class ReachabilityService : AccessibilityService() {
 
     private var windowManager: WindowManager? = null
     private var touchpadOverlay: FrameLayout? = null
-    private var isTouchpadEnabled = false
+    private var mirrorGridOverlay: FrameLayout? = null
+    private var isTouchpadActive = false
     private var accessibilityButtonCallback: AccessibilityButtonController.AccessibilityButtonCallback? = null
 
     private val handler = Handler(Looper.getMainLooper())
     private val autoOffRunnable = Runnable {
-        sendLog("Auto-off timer expired. Hiding touchpad.")
-        disableTouchpad()
+        disableTouchpadUI()
     }
 
     private val toggleReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 "com.example.reachabilityhelper.TOGGLE_TOUCHPAD" -> {
-                    if (isTouchpadEnabled) disableTouchpad() else enableTouchpad()
-                }
-                "com.example.reachabilityhelper.TEST_TAP" -> {
-                    testInjectedTap()
+                    if (isTouchpadActive) disableTouchpadUI() else enableTouchpadUI()
                 }
             }
         }
@@ -72,7 +67,6 @@ class ReachabilityService : AccessibilityService() {
         isServiceRunning = true
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
-        // Explicitly set service info to ensure capabilities are active
         val info = serviceInfo.apply {
             eventTypes = AccessibilityEvent.TYPES_ALL_MASK
             feedbackType = android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_GENERIC
@@ -85,13 +79,13 @@ class ReachabilityService : AccessibilityService() {
         }
         serviceInfo = info
 
-        sendLog("Service connected. Flags: ${info.flags}")
+        sendLog("Service connected")
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             val controller = accessibilityButtonController
             accessibilityButtonCallback = object : AccessibilityButtonController.AccessibilityButtonCallback() {
                 override fun onClicked(controller: AccessibilityButtonController?) {
-                    if (isTouchpadEnabled) disableTouchpad() else enableTouchpad()
+                    if (isTouchpadActive) disableTouchpadUI() else enableTouchpadUI()
                 }
             }
             accessibilityButtonCallback?.let {
@@ -99,37 +93,30 @@ class ReachabilityService : AccessibilityService() {
             }
         }
 
-        val filter = IntentFilter().apply {
-            addAction("com.example.reachabilityhelper.TOGGLE_TOUCHPAD")
-            addAction("com.example.reachabilityhelper.TEST_TAP")
-        }
+        val filter = IntentFilter("com.example.reachabilityhelper.TOGGLE_TOUCHPAD")
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(toggleReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
             registerReceiver(toggleReceiver, filter)
         }
 
-        enableTouchpad()
+        enableTouchpadUI()
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
-
-    override fun onInterrupt() {}
-
-    private fun enableTouchpad() {
-        if (isTouchpadEnabled) return
-        sendLog("Enabling touchpad")
-        addTouchpadOverlay()
+    private fun enableTouchpadUI() {
+        if (isTouchpadActive) return
+        sendLog("Showing UI")
+        addOverlays()
+        isTouchpadActive = true
         resetAutoOffTimer(3000)
-        isTouchpadEnabled = true
     }
 
-    private fun disableTouchpad() {
-        if (!isTouchpadEnabled) return
-        sendLog("Disabling touchpad")
-        removeTouchpadOverlay()
+    private fun disableTouchpadUI() {
+        if (!isTouchpadActive) return
+        sendLog("Hiding UI")
+        removeOverlays()
         handler.removeCallbacks(autoOffRunnable)
-        isTouchpadEnabled = false
+        isTouchpadActive = false
     }
 
     private fun resetAutoOffTimer(delayMillis: Long = 1000) {
@@ -138,248 +125,108 @@ class ReachabilityService : AccessibilityService() {
     }
 
     @SuppressLint("ClickableViewAccessibility")
-    private fun addTouchpadOverlay() {
-        if (touchpadOverlay != null) return
-
+    private fun addOverlays() {
         val display = windowManager?.defaultDisplay
-        val size = Point()
-        display?.getRealSize(size)
-        val screenHeight = size.y
-        val screenWidth = size.x
+        val screenSize = Point()
+        display?.getRealSize(screenSize)
+        val halfHeight = screenSize.y / 2
 
-        val overlayHeight = screenHeight / 2
+        mirrorGridOverlay = FrameLayout(this).apply {
+            addView(GridView(context, screenSize.x, halfHeight, false))
+        }
+        val topParams = WindowManager.LayoutParams(
+            screenSize.x, halfHeight,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.TOP }
 
         touchpadOverlay = FrameLayout(this).apply {
-            // Background grid
-            val gridLayout = GridLayout(context).apply {
-                columnCount = 4
-                rowCount = 4
-                val colors = arrayOf(
-                    Color.argb(40, 255, 0, 0), Color.argb(40, 0, 255, 0), Color.argb(40, 0, 0, 255), Color.argb(40, 255, 255, 0),
-                    Color.argb(40, 255, 0, 255), Color.argb(40, 0, 255, 255), Color.argb(40, 128, 0, 0), Color.argb(40, 0, 128, 0),
-                    Color.argb(40, 0, 0, 128), Color.argb(40, 128, 128, 0), Color.argb(40, 128, 0, 128), Color.argb(40, 0, 128, 128),
-                    Color.argb(40, 64, 64, 64), Color.argb(40, 192, 192, 192), Color.argb(40, 255, 128, 0), Color.argb(40, 128, 255, 0)
-                )
-                for (i in 0 until 16) {
-                    val cell = View(context).apply {
-                        setBackgroundColor(colors[i % colors.size])
-                        val params = GridLayout.LayoutParams().apply {
-                            width = screenWidth / 4
-                            height = overlayHeight / 4
-                        }
-                        layoutParams = params
-                    }
-                    addView(cell)
-                }
-            }
-            addView(gridLayout)
-
-            // Red border
-            val borderView = View(context).apply {
-                val background = GradientDrawable().apply {
-                    setStroke(15, Color.RED)
-                }
-                setBackground(background)
-                layoutParams = FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT
-                )
-            }
-            addView(borderView)
-
+            addView(GridView(context, screenSize.x, halfHeight, true))
             setOnTouchListener { _, event ->
-                when (event.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        resetAutoOffTimer(2000)
-                    }
-                    MotionEvent.ACTION_UP -> {
-                        resetAutoOffTimer(1000)
-                        handleMirrorTouch(event.rawX, event.rawY)
-                    }
+                if (event.action == MotionEvent.ACTION_UP) {
+                    handleTouch(event.rawX, event.rawY)
                 }
                 true
             }
         }
-
-        val params = WindowManager.LayoutParams(
-            screenWidth,
-            overlayHeight,
+        val bottomParams = WindowManager.LayoutParams(
+            screenSize.x, halfHeight,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.BOTTOM
-        }
+        ).apply { gravity = Gravity.BOTTOM }
 
         try {
-            windowManager?.addView(touchpadOverlay, params)
+            windowManager?.addView(mirrorGridOverlay, topParams)
+            windowManager?.addView(touchpadOverlay, bottomParams)
         } catch (e: Exception) {
             sendLog("Overlay error: ${e.message}")
         }
     }
 
-    private fun removeTouchpadOverlay() {
-        touchpadOverlay?.let {
-            try {
-                windowManager?.removeView(it)
-            } catch (e: Exception) {}
-            touchpadOverlay = null
-        }
+    private fun removeOverlays() {
+        touchpadOverlay?.let { try { windowManager?.removeView(it) } catch (e: Exception) {} }
+        mirrorGridOverlay?.let { try { windowManager?.removeView(it) } catch (e: Exception) {} }
+        touchpadOverlay = null
+        mirrorGridOverlay = null
     }
 
-    private fun handleMirrorTouch(rawX: Float, rawY: Float) {
+    private fun handleTouch(rawX: Float, rawY: Float) {
         val display = windowManager?.defaultDisplay
         val screenSize = Point()
         display?.getRealSize(screenSize)
-        val screenHeight = screenSize.y
 
         val targetX = rawX
-        val targetY = rawY - (screenHeight / 2f)
+        val targetY = rawY - (screenSize.y / 2f)
+        val clampedY = targetY.coerceIn(0f, (screenSize.y / 2f) - 1f)
 
-        // Clamping
-        val clampedX = targetX.coerceIn(0f, screenSize.x.toFloat())
-        val clampedY = targetY.coerceIn(0f, (screenHeight / 2f) - 1f)
-
-        // SPECIAL CASE: Top left corner triggers BACK action
-        if (rawX < 100 && rawY > screenHeight - 100) {
-            sendLog("Triggering GLOBAL_ACTION_BACK")
-            performGlobalAction(GLOBAL_ACTION_BACK)
-            return
-        }
-
-        sendLog("Clean Injection at (${clampedX.toInt()}, ${clampedY.toInt()})")
+        sendLog("Action: Click at (${targetX.toInt()}, ${clampedY.toInt()})")
 
         vibrate()
 
-        removeTouchpadOverlay()
+        // Final action: remove overlays and set inactive immediately
+        disableTouchpadUI()
 
         handler.postDelayed({
-            val clicked = trySmartClick(clampedX.toInt(), clampedY.toInt())
-
-            if (!clicked) {
-                dispatchSyntheticClick(clampedX, clampedY)
-            } else {
-                showVisualIndicator(clampedX, clampedY)
-                if (isTouchpadEnabled) addTouchpadOverlay()
-            }
-        }, 500)
-    }
-
-    private fun trySmartClick(x: Int, y: Int): Boolean {
-        val root = rootInActiveWindow ?: run {
-            sendLog("Smart Click: No active window")
-            return false
-        }
-        val clickableNode = findClickableNodeAt(root, x, y)
-        if (clickableNode != null) {
-            val text = clickableNode.text ?: clickableNode.contentDescription ?: clickableNode.viewIdResourceName ?: "unnamed node"
-            sendLog("Smart Click on: $text")
-
-            clickableNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-            var result = clickableNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-
-            if (!result) {
-                val parent = clickableNode.parent
-                if (parent != null && parent.isClickable) {
-                    sendLog("Direct click failed, trying parent...")
-                    result = parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    parent.recycle()
-                }
-            }
-
-            clickableNode.recycle()
-            root.recycle()
-            return result
-        }
-        sendLog("Smart Click: No clickable node at ($x, $y)")
-        root.recycle()
-        return false
-    }
-
-    private fun findClickableNodeAt(node: AccessibilityNodeInfo, x: Int, y: Int): AccessibilityNodeInfo? {
-        val bounds = Rect()
-        node.getBoundsInScreen(bounds)
-        if (!bounds.contains(x, y)) return null
-
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            val result = findClickableNodeAt(child, x, y)
-            if (result != null) {
-                return result
-            }
-            child.recycle()
-        }
-
-        if (node.isClickable) {
-            return AccessibilityNodeInfo.obtain(node)
-        }
-
-        return null
+            dispatchSyntheticClick(targetX, clampedY)
+        }, 150)
     }
 
     private fun dispatchSyntheticClick(x: Float, y: Float) {
-        sendLog("Dispatching Synthetic Gesture...")
         showVisualIndicator(x, y)
-
-        val path = Path()
-        path.moveTo(x, y)
-        path.lineTo(x, y + 1)
-
-        val gestureBuilder = GestureDescription.Builder()
-        gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 50, 100))
-
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            gestureBuilder.setDisplayId(Display.DEFAULT_DISPLAY)
+        val path = Path().apply {
+            moveTo(x, y)
+            lineTo(x, y + 1)
         }
+        val gesture = GestureDescription.Builder().apply {
+            addStroke(GestureDescription.StrokeDescription(path, 10, 100))
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                setDisplayId(Display.DEFAULT_DISPLAY)
+            }
+        }.build()
 
-        val success = dispatchGesture(gestureBuilder.build(), object : GestureResultCallback() {
+        dispatchGesture(gesture, object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
-                sendLog("Gesture: SUCCESS")
-                if (isTouchpadEnabled) addTouchpadOverlay()
+                sendLog("Gesture Success")
             }
             override fun onCancelled(gestureDescription: GestureDescription?) {
-                sendLog("Gesture: CANCELLED")
-                if (isTouchpadEnabled) addTouchpadOverlay()
+                sendLog("Gesture Cancelled")
             }
         }, null)
-
-        if (!success) {
-            sendLog("dispatchGesture returned FALSE immediately")
-            if (isTouchpadEnabled) addTouchpadOverlay()
-        }
-    }
-
-    private fun testInjectedTap() {
-        val display = windowManager?.defaultDisplay
-        val screenSize = Point()
-        display?.getRealSize(screenSize)
-        val targetX = screenSize.x / 2f
-        val targetY = screenSize.y / 4f
-
-        sendLog("Test Tap (3s)...")
-        handler.postDelayed({
-            sendLog("TESTING TAP NOW")
-            dispatchSyntheticClick(targetX, targetY)
-        }, 3000)
     }
 
     private fun vibrate() {
-        try {
-            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                vibrator.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator.vibrate(50)
-            }
-        } catch (e: Exception) {}
+        val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(50)
+        }
     }
 
     private fun showVisualIndicator(x: Float, y: Float) {
-        val size = 80
         val indicator = View(this).apply {
             val shape = GradientDrawable().apply {
                 setShape(GradientDrawable.OVAL)
@@ -387,44 +234,58 @@ class ReachabilityService : AccessibilityService() {
             }
             background = shape
         }
-
         val params = WindowManager.LayoutParams(
-            size,
-            size,
+            80, 80,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            this.x = (x - size / 2).toInt()
-            this.y = (y - size / 2).toInt()
+            this.x = (x - 40).toInt()
+            this.y = (y - 40).toInt()
         }
-
         try {
             windowManager?.addView(indicator, params)
-            handler.postDelayed({
-                try {
-                    windowManager?.removeView(indicator)
-                } catch (e: Exception) {}
-            }, 300)
+            handler.postDelayed({ try { windowManager?.removeView(indicator) } catch (e: Exception) {} }, 300)
         } catch (e: Exception) {}
     }
 
-    override fun onUnbind(intent: Intent?): Boolean {
-        isServiceRunning = false
-        disableTouchpad()
-        return super.onUnbind(intent)
+    private class GridView(context: Context, val w: Int, val h: Int, val isTouchpad: Boolean) : View(context) {
+        private val colors = intArrayOf(Color.RED, Color.GREEN, Color.BLUE, Color.YELLOW, Color.CYAN, Color.MAGENTA)
+        private val paint = Paint().apply {
+            strokeWidth = 5f
+            style = Paint.Style.STROKE
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            paint.color = Color.RED
+            canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), paint)
+            for (i in 1..3) {
+                paint.color = colors[i % colors.size]
+                val vx = (w / 4f) * i
+                canvas.drawLine(vx, 0f, vx, h.toFloat(), paint)
+                paint.color = colors[(i + 3) % colors.size]
+                val hy = (h / 4f) * i
+                canvas.drawLine(0f, hy, w.toFloat(), hy, paint)
+            }
+            if (isTouchpad) {
+                canvas.drawColor(Color.argb(10, 255, 0, 0))
+            }
+        }
     }
 
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onInterrupt() {}
+    override fun onUnbind(intent: Intent?): Boolean {
+        isServiceRunning = false
+        disableTouchpadUI()
+        return super.onUnbind(intent)
+    }
     override fun onDestroy() {
         super.onDestroy()
         isServiceRunning = false
-        disableTouchpad()
-        try {
-            unregisterReceiver(toggleReceiver)
-        } catch (e: Exception) {}
+        disableTouchpadUI()
+        try { unregisterReceiver(toggleReceiver) } catch (e: Exception) {}
     }
 }
