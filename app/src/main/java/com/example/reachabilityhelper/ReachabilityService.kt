@@ -71,6 +71,10 @@ class ReachabilityService : AccessibilityService() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         sendLog("Service connected")
 
+        // Log service info flags
+        val info = serviceInfo
+        sendLog("Flags: ${info.flags}")
+
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             val controller = accessibilityButtonController
             accessibilityButtonCallback = object : AccessibilityButtonController.AccessibilityButtonCallback() {
@@ -203,43 +207,64 @@ class ReachabilityService : AccessibilityService() {
         val clampedX = targetX.coerceIn(0f, screenSize.x.toFloat())
         val clampedY = targetY.coerceIn(0f, (screenHeight / 2f) - 1f)
 
-        sendLog("Target: (${clampedX.toInt()}, ${clampedY.toInt()})")
+        // SPECIAL CASE: Top left corner triggers BACK action to verify service capabilities
+        if (rawX < 100 && rawY > screenHeight - 100) {
+            sendLog("Triggering GLOBAL_ACTION_BACK")
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            return
+        }
 
-        showVisualIndicator(clampedX, clampedY)
+        sendLog("Clean Injection at (${clampedX.toInt()}, ${clampedY.toInt()})")
+
         vibrate()
 
-        // Hide overlay to ensure it doesn't block node discovery or gesture
+        // 1. Remove overlay IMMEDIATELY to clear "obscured" status
         removeTouchpadOverlay()
 
-        // 1. Try Smart Click
-        val clicked = trySmartClick(clampedX.toInt(), clampedY.toInt())
+        // 2. Wait 500ms for system to stabilize
+        handler.postDelayed({
+            // 3. Try Smart Click
+            val clicked = trySmartClick(clampedX.toInt(), clampedY.toInt())
 
-        // 2. Fallback to dispatchGesture with a 300ms wait
-        if (!clicked) {
-            handler.postDelayed({
+            if (!clicked) {
+                // 4. Fallback to synthetic gesture if node click failed
                 dispatchSyntheticClick(clampedX, clampedY)
-            }, 300)
-        } else {
-            // Re-add overlay if smart clicked
-            if (isTouchpadEnabled) addTouchpadOverlay()
-        }
+            } else {
+                // Node click worked, show indicator and re-add overlay
+                showVisualIndicator(clampedX, clampedY)
+                if (isTouchpadEnabled) addTouchpadOverlay()
+            }
+        }, 500)
     }
 
     private fun trySmartClick(x: Int, y: Int): Boolean {
-        val root = rootInActiveWindow ?: return false
+        val root = rootInActiveWindow ?: run {
+            sendLog("Smart Click: No active window")
+            return false
+        }
         val clickableNode = findClickableNodeAt(root, x, y)
         if (clickableNode != null) {
-            val text = clickableNode.text ?: clickableNode.contentDescription ?: clickableNode.className
+            val text = clickableNode.text ?: clickableNode.contentDescription ?: clickableNode.viewIdResourceName ?: "unnamed node"
             sendLog("Smart Click on: $text")
 
-            // Try to focus then click
             clickableNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-            val result = clickableNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            var result = clickableNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+
+            // Try parent if direct click failed
+            if (!result) {
+                val parent = clickableNode.parent
+                if (parent != null && parent.isClickable) {
+                    sendLog("Direct click failed, trying parent...")
+                    result = parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    parent.recycle()
+                }
+            }
 
             clickableNode.recycle()
             root.recycle()
             return result
         }
+        sendLog("Smart Click: No clickable node at ($x, $y)")
         root.recycle()
         return false
     }
@@ -249,7 +274,6 @@ class ReachabilityService : AccessibilityService() {
         node.getBoundsInScreen(bounds)
         if (!bounds.contains(x, y)) return null
 
-        // Deepest child first
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             val result = findClickableNodeAt(child, x, y)
@@ -267,28 +291,36 @@ class ReachabilityService : AccessibilityService() {
     }
 
     private fun dispatchSyntheticClick(x: Float, y: Float) {
+        sendLog("Dispatching Synthetic Gesture...")
+        showVisualIndicator(x, y)
+
         val path = Path()
         path.moveTo(x, y)
-        path.lineTo(x, y + 1) // Critical: lineTo makes it a gesture
+        path.lineTo(x, y + 1)
 
         val gestureBuilder = GestureDescription.Builder()
-        // Critical: 10ms start delay, 100ms duration
-        gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 10, 100))
+        // 50ms start delay, 100ms duration
+        gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 50, 100))
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             gestureBuilder.setDisplayId(Display.DEFAULT_DISPLAY)
         }
 
-        dispatchGesture(gestureBuilder.build(), object : GestureResultCallback() {
+        val success = dispatchGesture(gestureBuilder.build(), object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
-                sendLog("Gesture: SUCCESS")
+                sendLog("Gesture Success")
                 if (isTouchpadEnabled) addTouchpadOverlay()
             }
             override fun onCancelled(gestureDescription: GestureDescription?) {
-                sendLog("Gesture: CANCELLED")
+                sendLog("Gesture Cancelled by System")
                 if (isTouchpadEnabled) addTouchpadOverlay()
             }
         }, null)
+
+        if (!success) {
+            sendLog("dispatchGesture returned FALSE immediately")
+            if (isTouchpadEnabled) addTouchpadOverlay()
+        }
     }
 
     private fun testInjectedTap() {
@@ -301,8 +333,6 @@ class ReachabilityService : AccessibilityService() {
         sendLog("Test Tap (3s)...")
         handler.postDelayed({
             sendLog("TESTING TAP NOW")
-            showVisualIndicator(targetX, targetY)
-            vibrate()
             dispatchSyntheticClick(targetX, targetY)
         }, 3000)
     }
