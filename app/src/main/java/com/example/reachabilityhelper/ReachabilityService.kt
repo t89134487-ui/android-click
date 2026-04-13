@@ -108,7 +108,7 @@ class ReachabilityService : AccessibilityService() {
         sendLog("Showing UI")
         addOverlays()
         isTouchpadActive = true
-        resetAutoOffTimer(3000)
+        resetAutoOffTimer(12000) // 12 seconds (4x longer than 3s)
     }
 
     private fun disableTouchpadUI() {
@@ -251,26 +251,38 @@ class ReachabilityService : AccessibilityService() {
     }
 
     private class GridView(context: Context, val w: Int, val h: Int, val isTouchpad: Boolean) : View(context) {
-        private val colors = intArrayOf(Color.RED, Color.GREEN, Color.BLUE, Color.YELLOW, Color.CYAN, Color.MAGENTA)
+        private val gridColors = intArrayOf(
+            Color.YELLOW, Color.GREEN, Color.BLUE, Color.CYAN, Color.MAGENTA, Color.WHITE
+        )
         private val paint = Paint().apply {
-            strokeWidth = 5f
+            strokeWidth = 6f
             style = Paint.Style.STROKE
+            alpha = 255 // Opaque lines
         }
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
+
+            // Draw outer border (Red)
             paint.color = Color.RED
             canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), paint)
+
+            // Draw grid lines (Opaque, distinct colors)
             for (i in 1..3) {
-                paint.color = colors[i % colors.size]
+                // Vertical lines
+                paint.color = gridColors[i % gridColors.size]
                 val vx = (w / 4f) * i
                 canvas.drawLine(vx, 0f, vx, h.toFloat(), paint)
-                paint.color = colors[(i + 3) % colors.size]
+
+                // Horizontal lines
+                paint.color = gridColors[(i + 2) % gridColors.size]
                 val hy = (h / 4f) * i
                 canvas.drawLine(0f, hy, w.toFloat(), hy, paint)
             }
+
             if (isTouchpad) {
-                canvas.drawColor(Color.argb(10, 255, 0, 0))
+                // Faint tint for source area
+                canvas.drawColor(Color.argb(15, 255, 255, 255))
             }
         }
     }
