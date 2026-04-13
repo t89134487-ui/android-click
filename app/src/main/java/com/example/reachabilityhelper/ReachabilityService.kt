@@ -43,8 +43,8 @@ class ReachabilityService : AccessibilityService() {
 
     private val handler = Handler(Looper.getMainLooper())
     private val autoOffRunnable = Runnable {
-        sendLog("Auto-off timer expired. Disabling service.")
-        disableSelf()
+        sendLog("Auto-off timer expired. Hiding touchpad.")
+        disableTouchpad()
     }
 
     private val toggleReceiver = object : android.content.BroadcastReceiver() {
