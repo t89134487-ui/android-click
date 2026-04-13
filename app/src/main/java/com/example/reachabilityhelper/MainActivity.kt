@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Button
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -17,6 +18,8 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var tvServiceStatus: TextView
     private lateinit var tvLogs: TextView
+    private lateinit var sbHeight: SeekBar
+    private lateinit var sbOffset: SeekBar
 
     private val logReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -28,6 +31,8 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        val prefs = getSharedPreferences("settings", MODE_PRIVATE)
 
         findViewById<Button>(R.id.btn_accessibility_settings).setOnClickListener {
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
@@ -41,6 +46,28 @@ class MainActivity : AppCompatActivity() {
 
         tvServiceStatus = findViewById(R.id.tv_service_status)
         tvLogs = findViewById(R.id.tv_logs)
+        sbHeight = findViewById(R.id.sb_height)
+        sbOffset = findViewById(R.id.sb_offset)
+
+        sbHeight.progress = prefs.getInt("touchpad_height_pct", 33)
+        sbOffset.progress = prefs.getInt("touchpad_bottom_offset", 0)
+
+        val seekBarListener = object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    val editor = prefs.edit()
+                    editor.putInt("touchpad_height_pct", sbHeight.progress)
+                    editor.putInt("touchpad_bottom_offset", sbOffset.progress)
+                    editor.apply()
+                    sendBroadcast(Intent("com.example.reachabilityhelper.SETTINGS_CHANGED"))
+                }
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        }
+
+        sbHeight.setOnSeekBarChangeListener(seekBarListener)
+        sbOffset.setOnSeekBarChangeListener(seekBarListener)
 
         findViewById<Button>(R.id.btn_toggle_service).setOnClickListener {
             sendBroadcast(Intent("com.example.reachabilityhelper.TOGGLE_TOUCHPAD"))

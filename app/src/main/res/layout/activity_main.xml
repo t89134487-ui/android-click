@@ -69,7 +69,33 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Test Injected Tap (3s delay)"
+        android:layout_marginBottom="24dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Touchpad Height (%)"
+        android:textStyle="bold"/>
+    <SeekBar
+        android:id="@+id/sb_height"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:max="50"
+        android:progress="33"
         android:layout_marginBottom="16dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Touchpad Bottom Offset (px)"
+        android:textStyle="bold"/>
+    <SeekBar
+        android:id="@+id/sb_offset"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:max="1000"
+        android:progress="0"
+        android:layout_marginBottom="32dp"/>
 
     <LinearLayout
         android:layout_width="match_parent"
