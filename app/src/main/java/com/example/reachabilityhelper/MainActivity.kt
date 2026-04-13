@@ -49,6 +49,10 @@ class MainActivity : AppCompatActivity() {
             sendBroadcast(Intent("com.example.reachabilityhelper.TEST_TAP"))
         }
 
+        findViewById<Button>(R.id.btn_clear_logs).setOnClickListener {
+            tvLogs.text = "Logs cleared."
+        }
+
         val filter = IntentFilter("com.example.reachabilityhelper.LOG")
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(logReceiver, filter, RECEIVER_EXPORTED)

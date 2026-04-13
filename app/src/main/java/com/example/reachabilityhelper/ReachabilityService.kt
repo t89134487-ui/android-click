@@ -211,14 +211,14 @@ class ReachabilityService : AccessibilityService() {
         // Hide overlay to ensure it doesn't block node discovery or gesture
         removeTouchpadOverlay()
 
-        // 1. Try Smart Click (ACTION_CLICK on AccessibilityNodeInfo)
+        // 1. Try Smart Click
         val clicked = trySmartClick(clampedX.toInt(), clampedY.toInt())
 
-        // 2. Fallback to dispatchGesture with a delay
+        // 2. Fallback to dispatchGesture with a 300ms wait
         if (!clicked) {
             handler.postDelayed({
                 dispatchSyntheticClick(clampedX, clampedY)
-            }, 150)
+            }, 300)
         } else {
             // Re-add overlay if smart clicked
             if (isTouchpadEnabled) addTouchpadOverlay()
@@ -231,9 +231,11 @@ class ReachabilityService : AccessibilityService() {
         if (clickableNode != null) {
             val text = clickableNode.text ?: clickableNode.contentDescription ?: clickableNode.className
             sendLog("Smart Click on: $text")
+
+            // Try to focus then click
+            clickableNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
             val result = clickableNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            // Note: Don't recycle clickableNode if it's the result of findClickableNodeAt as we recycled others there
-            // Actually, findClickableNodeAt returns a NEW reference via obtain() or similar
+
             clickableNode.recycle()
             root.recycle()
             return result
@@ -247,18 +249,16 @@ class ReachabilityService : AccessibilityService() {
         node.getBoundsInScreen(bounds)
         if (!bounds.contains(x, y)) return null
 
-        // Search children first for the deepest node
+        // Deepest child first
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             val result = findClickableNodeAt(child, x, y)
             if (result != null) {
-                // We found it deeper down
                 return result
             }
             child.recycle()
         }
 
-        // If no clickable children, check if this node is clickable
         if (node.isClickable) {
             return AccessibilityNodeInfo.obtain(node)
         }
@@ -267,11 +267,13 @@ class ReachabilityService : AccessibilityService() {
     }
 
     private fun dispatchSyntheticClick(x: Float, y: Float) {
-        val path = Path().apply {
-            moveTo(x, y)
-        }
+        val path = Path()
+        path.moveTo(x, y)
+        path.lineTo(x, y + 1) // Critical: lineTo makes it a gesture
+
         val gestureBuilder = GestureDescription.Builder()
-        gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 0, 50))
+        // Critical: 10ms start delay, 100ms duration
+        gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 10, 100))
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             gestureBuilder.setDisplayId(Display.DEFAULT_DISPLAY)
@@ -279,11 +281,11 @@ class ReachabilityService : AccessibilityService() {
 
         dispatchGesture(gestureBuilder.build(), object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
-                sendLog("Gesture success")
+                sendLog("Gesture: SUCCESS")
                 if (isTouchpadEnabled) addTouchpadOverlay()
             }
             override fun onCancelled(gestureDescription: GestureDescription?) {
-                sendLog("Gesture cancelled")
+                sendLog("Gesture: CANCELLED")
                 if (isTouchpadEnabled) addTouchpadOverlay()
             }
         }, null)
@@ -293,7 +295,6 @@ class ReachabilityService : AccessibilityService() {
         val display = windowManager?.defaultDisplay
         val screenSize = Point()
         display?.getRealSize(screenSize)
-
         val targetX = screenSize.x / 2f
         val targetY = screenSize.y / 4f
 
