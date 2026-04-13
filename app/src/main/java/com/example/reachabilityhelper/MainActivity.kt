@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.widget.Button
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
 class MainActivity : AppCompatActivity() {
@@ -53,9 +54,16 @@ class MainActivity : AppCompatActivity() {
             tvLogs.text = "Logs cleared."
         }
 
+        findViewById<Button>(R.id.btn_copy_logs).setOnClickListener {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val clip = android.content.ClipData.newPlainText("Reachability Logs", tvLogs.text)
+            clipboard.setPrimaryClip(clip)
+            Toast.makeText(this, "Logs copied to clipboard", Toast.LENGTH_SHORT).show()
+        }
+
         val filter = IntentFilter("com.example.reachabilityhelper.LOG")
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(logReceiver, filter, RECEIVER_EXPORTED)
+            registerReceiver(logReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
             registerReceiver(logReceiver, filter)
         }

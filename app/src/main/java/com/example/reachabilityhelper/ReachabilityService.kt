@@ -6,6 +6,7 @@ import android.accessibilityservice.GestureDescription
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.Path
 import android.graphics.PixelFormat
@@ -25,6 +26,7 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.FrameLayout
+import android.widget.GridLayout
 import android.widget.Toast
 
 class ReachabilityService : AccessibilityService() {
@@ -69,11 +71,21 @@ class ReachabilityService : AccessibilityService() {
         super.onServiceConnected()
         isServiceRunning = true
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        sendLog("Service connected")
 
-        // Log service info flags
-        val info = serviceInfo
-        sendLog("Flags: ${info.flags}")
+        // Explicitly set service info to ensure capabilities are active
+        val info = serviceInfo.apply {
+            eventTypes = AccessibilityEvent.TYPES_ALL_MASK
+            feedbackType = android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_GENERIC
+            flags = flags or
+                    android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
+                    android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS or
+                    android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+                    android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_ACCESSIBILITY_BUTTON
+            notificationTimeout = 100
+        }
+        serviceInfo = info
+
+        sendLog("Service connected. Flags: ${info.flags}")
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             val controller = accessibilityButtonController
@@ -87,12 +99,12 @@ class ReachabilityService : AccessibilityService() {
             }
         }
 
-        val filter = android.content.IntentFilter().apply {
+        val filter = IntentFilter().apply {
             addAction("com.example.reachabilityhelper.TOGGLE_TOUCHPAD")
             addAction("com.example.reachabilityhelper.TEST_TAP")
         }
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(toggleReceiver, filter, RECEIVER_EXPORTED)
+            registerReceiver(toggleReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
             registerReceiver(toggleReceiver, filter)
         }
@@ -138,10 +150,34 @@ class ReachabilityService : AccessibilityService() {
         val overlayHeight = screenHeight / 2
 
         touchpadOverlay = FrameLayout(this).apply {
+            // Background grid
+            val gridLayout = GridLayout(context).apply {
+                columnCount = 4
+                rowCount = 4
+                val colors = arrayOf(
+                    Color.argb(40, 255, 0, 0), Color.argb(40, 0, 255, 0), Color.argb(40, 0, 0, 255), Color.argb(40, 255, 255, 0),
+                    Color.argb(40, 255, 0, 255), Color.argb(40, 0, 255, 255), Color.argb(40, 128, 0, 0), Color.argb(40, 0, 128, 0),
+                    Color.argb(40, 0, 0, 128), Color.argb(40, 128, 128, 0), Color.argb(40, 128, 0, 128), Color.argb(40, 0, 128, 128),
+                    Color.argb(40, 64, 64, 64), Color.argb(40, 192, 192, 192), Color.argb(40, 255, 128, 0), Color.argb(40, 128, 255, 0)
+                )
+                for (i in 0 until 16) {
+                    val cell = View(context).apply {
+                        setBackgroundColor(colors[i % colors.size])
+                        val params = GridLayout.LayoutParams().apply {
+                            width = screenWidth / 4
+                            height = overlayHeight / 4
+                        }
+                        layoutParams = params
+                    }
+                    addView(cell)
+                }
+            }
+            addView(gridLayout)
+
+            // Red border
             val borderView = View(context).apply {
                 val background = GradientDrawable().apply {
                     setStroke(15, Color.RED)
-                    setColor(Color.argb(50, 255, 0, 0))
                 }
                 setBackground(background)
                 layoutParams = FrameLayout.LayoutParams(
@@ -207,7 +243,7 @@ class ReachabilityService : AccessibilityService() {
         val clampedX = targetX.coerceIn(0f, screenSize.x.toFloat())
         val clampedY = targetY.coerceIn(0f, (screenHeight / 2f) - 1f)
 
-        // SPECIAL CASE: Top left corner triggers BACK action to verify service capabilities
+        // SPECIAL CASE: Top left corner triggers BACK action
         if (rawX < 100 && rawY > screenHeight - 100) {
             sendLog("Triggering GLOBAL_ACTION_BACK")
             performGlobalAction(GLOBAL_ACTION_BACK)
@@ -218,19 +254,14 @@ class ReachabilityService : AccessibilityService() {
 
         vibrate()
 
-        // 1. Remove overlay IMMEDIATELY to clear "obscured" status
         removeTouchpadOverlay()
 
-        // 2. Wait 500ms for system to stabilize
         handler.postDelayed({
-            // 3. Try Smart Click
             val clicked = trySmartClick(clampedX.toInt(), clampedY.toInt())
 
             if (!clicked) {
-                // 4. Fallback to synthetic gesture if node click failed
                 dispatchSyntheticClick(clampedX, clampedY)
             } else {
-                // Node click worked, show indicator and re-add overlay
                 showVisualIndicator(clampedX, clampedY)
                 if (isTouchpadEnabled) addTouchpadOverlay()
             }
@@ -250,7 +281,6 @@ class ReachabilityService : AccessibilityService() {
             clickableNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
             var result = clickableNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
 
-            // Try parent if direct click failed
             if (!result) {
                 val parent = clickableNode.parent
                 if (parent != null && parent.isClickable) {
@@ -299,7 +329,6 @@ class ReachabilityService : AccessibilityService() {
         path.lineTo(x, y + 1)
 
         val gestureBuilder = GestureDescription.Builder()
-        // 50ms start delay, 100ms duration
         gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 50, 100))
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
@@ -308,11 +337,11 @@ class ReachabilityService : AccessibilityService() {
 
         val success = dispatchGesture(gestureBuilder.build(), object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
-                sendLog("Gesture Success")
+                sendLog("Gesture: SUCCESS")
                 if (isTouchpadEnabled) addTouchpadOverlay()
             }
             override fun onCancelled(gestureDescription: GestureDescription?) {
-                sendLog("Gesture Cancelled by System")
+                sendLog("Gesture: CANCELLED")
                 if (isTouchpadEnabled) addTouchpadOverlay()
             }
         }, null)
