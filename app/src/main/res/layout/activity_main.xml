@@ -49,6 +49,14 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Grant Overlay Permission"
+        android:layout_marginBottom="8dp"/>
+
+    <Button
+        android:id="@+id/btn_privacy_policy"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Privacy Policy"
+        style="@style/Widget.MaterialComponents.Button.TextButton"
         android:layout_marginBottom="32dp"/>
 
     <TextView
@@ -91,6 +99,32 @@
         android:textStyle="bold"/>
     <SeekBar
         android:id="@+id/sb_offset"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:max="1000"
+        android:progress="0"
+        android:layout_marginBottom="16dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Touchpad Width (%)"
+        android:textStyle="bold"/>
+    <SeekBar
+        android:id="@+id/sb_width"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:max="100"
+        android:progress="100"
+        android:layout_marginBottom="16dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Touchpad Left Offset (px)"
+        android:textStyle="bold"/>
+    <SeekBar
+        android:id="@+id/sb_left_offset"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:max="1000"

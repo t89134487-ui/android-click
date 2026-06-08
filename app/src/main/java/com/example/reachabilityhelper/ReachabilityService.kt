@@ -143,9 +143,13 @@ class ReachabilityService : AccessibilityService() {
         val prefs = getSharedPreferences("settings", MODE_PRIVATE)
         val heightPct = prefs.getInt("touchpad_height_pct", 33) / 100f
         val bottomOffset = prefs.getInt("touchpad_bottom_offset", 0)
+        val widthPct = prefs.getInt("touchpad_width_pct", 100) / 100f
+        val leftOffset = prefs.getInt("touchpad_left_offset", 0)
 
         val touchpadHeight = (screenHeight * heightPct).toInt()
+        val touchpadWidth = (screenWidth * widthPct).toInt()
         val targetAreaHeight = screenHeight / 2f
+        val targetAreaWidth = screenWidth.toFloat()
 
         // 1. Touchpad Overlay
         touchpadOverlay = FrameLayout(this).apply {
@@ -157,11 +161,15 @@ class ReachabilityService : AccessibilityService() {
             setBackground(background)
 
             setOnTouchListener { _, event ->
+                val localX = event.x // 0 at left of touchpad
                 val localY = event.y // 0 at top of touchpad
 
                 // Scaling: map localY [0, touchpadHeight] to targetY [0, targetAreaHeight]
                 val scaledY = (localY / touchpadHeight) * targetAreaHeight
-                val targetX = event.rawX
+                // Scaling: map localX [0, touchpadWidth] to targetX [0, targetAreaWidth]
+                val scaledX = (localX / touchpadWidth) * targetAreaWidth
+
+                val targetX = scaledX.coerceIn(0f, targetAreaWidth - 1f)
                 val targetY = scaledY.coerceIn(0f, targetAreaHeight - 1f)
 
                 when (event.action) {
@@ -180,12 +188,13 @@ class ReachabilityService : AccessibilityService() {
         }
 
         val touchpadParams = WindowManager.LayoutParams(
-            screenWidth, touchpadHeight,
+            touchpadWidth, touchpadHeight,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.BOTTOM
+            gravity = Gravity.BOTTOM or Gravity.START
+            x = leftOffset
             y = bottomOffset
         }
 
@@ -199,7 +208,7 @@ class ReachabilityService : AccessibilityService() {
             visibility = View.GONE
         }
         val indicatorParams = WindowManager.LayoutParams(
-            80, 80,
+            40, 40,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
@@ -219,10 +228,52 @@ class ReachabilityService : AccessibilityService() {
         seekIndicator?.let {
             it.visibility = View.VISIBLE
             val params = it.layoutParams as WindowManager.LayoutParams
-            params.x = (x - 40).toInt()
-            params.y = (y - 40).toInt()
+            params.x = (x - 20).toInt()
+            params.y = (y - 20).toInt()
             windowManager?.updateViewLayout(it, params)
+
+            // Change color if over a button
+            val isOverClickable = isOverClickable(x, y)
+            val color = if (isOverClickable) {
+                Color.argb(180, 0, 255, 0) // Green shadow for buttons
+            } else {
+                Color.argb(150, 255, 0, 0) // Red shadow otherwise
+            }
+            (it.background as? GradientDrawable)?.setColor(color)
         }
+    }
+
+    private fun isOverClickable(x: Float, y: Float): Boolean {
+        val rootNode = rootInActiveWindow ?: return false
+        val point = Point(x.toInt(), y.toInt())
+        val clickableNode = findClickableNodeAt(rootNode, point)
+        rootNode.recycle()
+        return clickableNode != null
+    }
+
+    private fun findClickableNodeAt(node: android.view.accessibility.AccessibilityNodeInfo, point: Point): android.view.accessibility.AccessibilityNodeInfo? {
+        val bounds = android.graphics.Rect()
+        node.getBoundsInScreen(bounds)
+
+        if (!bounds.contains(point.x, point.y)) {
+            return null
+        }
+
+        // Check children first (deepest node)
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val result = findClickableNodeAt(child, point)
+            if (result != null) {
+                return result
+            }
+            child.recycle()
+        }
+
+        if (node.isClickable) {
+            return node
+        }
+
+        return null
     }
 
     private fun performSeekClick() {
