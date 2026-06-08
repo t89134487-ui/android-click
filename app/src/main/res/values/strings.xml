@@ -1,4 +1,9 @@
 <resources>
     <string name="app_name">Reachability Helper</string>
     <string name="accessibility_service_description">Enables a touchpad in the bottom half of the screen to reach the top half.</string>
+    <string name="disclosure_title">Important Information</string>
+    <string name="disclosure_message">Reachability Helper uses the Accessibility Service API to perform touch gestures on your behalf.\n\nThis is required to mirror your touches from the touchpad to the top of your screen. No personal data is collected, stored, or transmitted.\n\nBy continuing, you agree to grant the required permissions.</string>
+    <string name="btn_agree">I Agree</string>
+    <string name="btn_exit">Exit</string>
+    <string name="privacy_policy_url">https://example.com/privacy-policy</string>
 </resources>

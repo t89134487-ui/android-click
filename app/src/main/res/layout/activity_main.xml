@@ -49,6 +49,14 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Grant Overlay Permission"
+        android:layout_marginBottom="8dp"/>
+
+    <Button
+        android:id="@+id/btn_privacy_policy"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Privacy Policy"
+        style="@style/Widget.MaterialComponents.Button.TextButton"
         android:layout_marginBottom="32dp"/>
 
     <TextView

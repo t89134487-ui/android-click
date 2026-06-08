@@ -12,6 +12,7 @@ import android.widget.Button
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 
 class MainActivity : AppCompatActivity() {
@@ -36,6 +37,10 @@ class MainActivity : AppCompatActivity() {
 
         val prefs = getSharedPreferences("settings", MODE_PRIVATE)
 
+        if (!prefs.getBoolean("disclosure_accepted", false)) {
+            showDisclosureDialog(prefs)
+        }
+
         findViewById<Button>(R.id.btn_accessibility_settings).setOnClickListener {
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
             startActivity(intent)
@@ -43,6 +48,11 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btn_overlay_settings).setOnClickListener {
             val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+            startActivity(intent)
+        }
+
+        findViewById<Button>(R.id.btn_privacy_policy).setOnClickListener {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(getString(R.string.privacy_policy_url)))
             startActivity(intent)
         }
 
@@ -114,6 +124,20 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         unregisterReceiver(logReceiver)
+    }
+
+    private fun showDisclosureDialog(prefs: android.content.SharedPreferences) {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.disclosure_title)
+            .setMessage(R.string.disclosure_message)
+            .setCancelable(false)
+            .setPositiveButton(R.string.btn_agree) { _, _ ->
+                prefs.edit().putBoolean("disclosure_accepted", true).apply()
+            }
+            .setNegativeButton(R.string.btn_exit) { _, _ ->
+                finish()
+            }
+            .show()
     }
 
     private fun updateServiceStatus() {
