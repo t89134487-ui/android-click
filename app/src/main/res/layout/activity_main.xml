@@ -95,6 +95,32 @@
         android:layout_height="wrap_content"
         android:max="1000"
         android:progress="0"
+        android:layout_marginBottom="16dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Touchpad Width (%)"
+        android:textStyle="bold"/>
+    <SeekBar
+        android:id="@+id/sb_width"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:max="100"
+        android:progress="100"
+        android:layout_marginBottom="16dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Touchpad Left Offset (px)"
+        android:textStyle="bold"/>
+    <SeekBar
+        android:id="@+id/sb_left_offset"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:max="1000"
+        android:progress="0"
         android:layout_marginBottom="32dp"/>
 
     <LinearLayout

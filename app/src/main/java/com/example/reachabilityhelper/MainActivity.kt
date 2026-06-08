@@ -20,6 +20,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvLogs: TextView
     private lateinit var sbHeight: SeekBar
     private lateinit var sbOffset: SeekBar
+    private lateinit var sbWidth: SeekBar
+    private lateinit var sbLeftOffset: SeekBar
 
     private val logReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -48,9 +50,13 @@ class MainActivity : AppCompatActivity() {
         tvLogs = findViewById(R.id.tv_logs)
         sbHeight = findViewById(R.id.sb_height)
         sbOffset = findViewById(R.id.sb_offset)
+        sbWidth = findViewById(R.id.sb_width)
+        sbLeftOffset = findViewById(R.id.sb_left_offset)
 
         sbHeight.progress = prefs.getInt("touchpad_height_pct", 33)
         sbOffset.progress = prefs.getInt("touchpad_bottom_offset", 0)
+        sbWidth.progress = prefs.getInt("touchpad_width_pct", 100)
+        sbLeftOffset.progress = prefs.getInt("touchpad_left_offset", 0)
 
         val seekBarListener = object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
@@ -58,6 +64,8 @@ class MainActivity : AppCompatActivity() {
                     val editor = prefs.edit()
                     editor.putInt("touchpad_height_pct", sbHeight.progress)
                     editor.putInt("touchpad_bottom_offset", sbOffset.progress)
+                    editor.putInt("touchpad_width_pct", sbWidth.progress)
+                    editor.putInt("touchpad_left_offset", sbLeftOffset.progress)
                     editor.apply()
                     sendBroadcast(Intent("com.example.reachabilityhelper.SETTINGS_CHANGED"))
                 }
@@ -68,6 +76,8 @@ class MainActivity : AppCompatActivity() {
 
         sbHeight.setOnSeekBarChangeListener(seekBarListener)
         sbOffset.setOnSeekBarChangeListener(seekBarListener)
+        sbWidth.setOnSeekBarChangeListener(seekBarListener)
+        sbLeftOffset.setOnSeekBarChangeListener(seekBarListener)
 
         findViewById<Button>(R.id.btn_toggle_service).setOnClickListener {
             sendBroadcast(Intent("com.example.reachabilityhelper.TOGGLE_TOUCHPAD"))

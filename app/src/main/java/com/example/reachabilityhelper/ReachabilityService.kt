@@ -143,9 +143,13 @@ class ReachabilityService : AccessibilityService() {
         val prefs = getSharedPreferences("settings", MODE_PRIVATE)
         val heightPct = prefs.getInt("touchpad_height_pct", 33) / 100f
         val bottomOffset = prefs.getInt("touchpad_bottom_offset", 0)
+        val widthPct = prefs.getInt("touchpad_width_pct", 100) / 100f
+        val leftOffset = prefs.getInt("touchpad_left_offset", 0)
 
         val touchpadHeight = (screenHeight * heightPct).toInt()
+        val touchpadWidth = (screenWidth * widthPct).toInt()
         val targetAreaHeight = screenHeight / 2f
+        val targetAreaWidth = screenWidth.toFloat()
 
         // 1. Touchpad Overlay
         touchpadOverlay = FrameLayout(this).apply {
@@ -157,11 +161,15 @@ class ReachabilityService : AccessibilityService() {
             setBackground(background)
 
             setOnTouchListener { _, event ->
+                val localX = event.x // 0 at left of touchpad
                 val localY = event.y // 0 at top of touchpad
 
                 // Scaling: map localY [0, touchpadHeight] to targetY [0, targetAreaHeight]
                 val scaledY = (localY / touchpadHeight) * targetAreaHeight
-                val targetX = event.rawX
+                // Scaling: map localX [0, touchpadWidth] to targetX [0, targetAreaWidth]
+                val scaledX = (localX / touchpadWidth) * targetAreaWidth
+
+                val targetX = scaledX.coerceIn(0f, targetAreaWidth - 1f)
                 val targetY = scaledY.coerceIn(0f, targetAreaHeight - 1f)
 
                 when (event.action) {
@@ -180,12 +188,13 @@ class ReachabilityService : AccessibilityService() {
         }
 
         val touchpadParams = WindowManager.LayoutParams(
-            screenWidth, touchpadHeight,
+            touchpadWidth, touchpadHeight,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.BOTTOM
+            gravity = Gravity.BOTTOM or Gravity.START
+            x = leftOffset
             y = bottomOffset
         }
 
